@@ -1,0 +1,153 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PRIMITIVES & HELPERS ---
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // Auth tokens never contain custom claims in this setup.
+    // Explicitly look up roles using get().
+    function isAdmin() { 
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/members/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isBootstrapAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email == "israfilxr1234@gmail.com" && 
+             request.auth.token.email_verified == true;
+    }
+
+    function isExecutive() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/members/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role in ['admin', 'executive'];
+    }
+
+    function canModifyRole(userId, incomingRole) {
+      return (userId == request.auth.uid && (isAdmin() || isBootstrapAdmin())) || isAdmin();
+    }
+
+    // --- VALIDATION BLUEPRINTS ---
+    
+    function isValidMember(data, userId) {
+      return data.keys().hasAll(['userId', 'name', 'rank', 'phone', 'role']) &&
+             data.userId == userId &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.rank is string && data.rank.size() > 0 && data.rank.size() <= 100 &&
+             data.phone is string && data.phone.size() >= 0 && data.phone.size() <= 20 &&
+             data.role in ['admin', 'executive', 'general'] &&
+             (!('category' in data) || data.category in ['active', 'volunteer', 'lead']) &&
+             (!('bloodGroup' in data) || data.bloodGroup in ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']) &&
+             (!('notificationPreferences' in data) || (data.notificationPreferences is map)) &&
+             (!('lastLogin' in data) || (data.lastLogin is timestamp));
+    }
+
+    function isValidActivityLog(data) {
+      return data.keys().hasAll(['userId', 'userName', 'type', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.type in ['login', 'logout'] &&
+             data.timestamp == request.time;
+    }
+
+    function isValidNotice(data) {
+      return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'createdAt', 'type']) &&
+             (data.keys().size() == 6 || (data.keys().size() == 7 && 'imageUrl' in data)) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.content is string && data.content.size() <= 10000 &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string && data.authorName.size() <= 100 &&
+             data.createdAt == request.time &&
+             data.type in ['urgent', 'info', 'meeting'] &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 800000));
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'createdAt', 'status']) &&
+             data.keys().size() == 6 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.content is string && data.content.size() <= 10000 &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string &&
+             data.createdAt == request.time &&
+             data.status in ['pending', 'reviewed'];
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['title', 'description', 'dateTime', 'location', 'organizerId']) &&
+             data.keys().size() == 5 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.description is string && data.description.size() <= 2000 &&
+             data.dateTime is string && // dateTime string ISO format
+             data.location is string && data.location.size() <= 300 &&
+             data.organizerId is string;
+    }
+
+    function isValidFund(data) {
+      // amount, type, description, date, memberId (opt), memberName (opt)
+      return data.keys().hasAll(['amount', 'type', 'description', 'date']) &&
+             data.amount is number && data.amount > -1000000 && data.amount < 1000000 &&
+             data.type in ['donation', 'expense'] &&
+             data.description is string && data.description.size() <= 500 &&
+             data.date == request.time;
+    }
+
+    // --- COLLECTION RULES ---
+
+    match /members/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidMember(incoming(), userId);
+      allow update: if isSignedIn() && (
+        // Self update of basic info
+        (userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'rank', 'phone', 'photoURL', 'category', 'bloodGroup', 'notificationPreferences', 'lastLogin'])) ||
+        // Admin or Self-Role change (Rule 2 & 3)
+        (canModifyRole(userId, incoming().role) && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'isVerified', 'name', 'rank', 'phone', 'photoURL', 'category', 'bloodGroup', 'notificationPreferences', 'lastLogin']))
+      ) && isValidMember(incoming(), userId);
+      allow delete: if isAdmin();
+    }
+
+    match /notices/{noticeId} {
+      allow read: if isSignedIn();
+      allow create: if isExecutive() && isValidId(noticeId) && isValidNotice(incoming());
+      allow update: if isExecutive() && (isAdmin() || existing().authorId == request.auth.uid) && isValidNotice(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'type', 'imageUrl']);
+      allow delete: if isAdmin();
+    }
+
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isExecutive() && isValidId(eventId) && isValidEvent(incoming());
+      allow update: if isExecutive() && (isAdmin() || existing().organizerId == request.auth.uid) && isValidEvent(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /funds/{fundId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidId(fundId) && isValidFund(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isExecutive();
+      allow create: if isExecutive() && isValidId(reportId) && isValidReport(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /activityLogs/{logId} {
+      allow get: if isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && isValidActivityLog(incoming());
+      allow update, delete: if false;
+    }
+  }
+}

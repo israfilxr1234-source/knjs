@@ -1,0 +1,123 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "A member of the organization",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string" },
+        "rank": { "type": "string", "description": "Position in organization" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "isVerified": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["admin", "executive", "general"] },
+        "category": { "type": "string", "enum": ["active", "volunteer", "lead"] },
+        "bloodGroup": { "type": "string", "enum": ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"] },
+        "notificationPreferences": {
+          "type": "object",
+          "properties": {
+            "urgentNotices": { "type": "boolean" },
+            "eventReminders": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["userId", "name", "rank", "phone"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "A progress report submitted by executive members",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "reviewed"] }
+      },
+      "required": ["title", "content", "authorId", "createdAt"]
+    },
+    "Notice": {
+      "title": "Notice",
+      "description": "An announcement for all members",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["urgent", "info", "meeting"] },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["title", "content", "authorId", "createdAt"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "An upcoming program or meeting",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "dateTime": { "type": "string", "format": "date-time" },
+        "location": { "type": "string" },
+        "organizerId": { "type": "string" }
+      },
+      "required": ["title", "dateTime", "location"]
+    },
+    "FundRecord": {
+      "title": "Fund Record",
+      "description": "A financial transaction for the organization",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["donation", "expense"] },
+        "description": { "type": "string" },
+        "memberId": { "type": "string", "description": "Optional: link to member" },
+        "memberName": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "type", "description", "date"]
+    },
+    "ActivityLog": {
+      "title": "Activity Log",
+      "description": "Records of member logins and logouts",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "type": { "type": "string", "enum": ["login", "logout"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "type", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/members": {
+      "schema": "Member",
+      "description": "List of organization members"
+    },
+    "/notices": {
+      "schema": "Notice",
+      "description": "Announcements and bulletins"
+    },
+    "/events": {
+      "schema": "Event",
+      "description": "Calendar of events"
+    },
+    "/funds": {
+      "schema": "FundRecord",
+      "description": "Financial ledger"
+    },
+    "/reports": {
+      "schema": "Report",
+      "description": "Executive member reports"
+    },
+    "/activityLogs": {
+      "schema": "ActivityLog",
+      "description": "Login and logout history"
+    }
+  }
+}

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>অর্গSync - সংগঠন ব্যবস্থাপনা</title>
+    
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, where, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Firebase Configuration (Matching your project)
+        const firebaseConfig = {
+            projectId: "gen-lang-client-0976770209",
+            appId: "1:161345534755:web:df660fe39de7edd7832a96",
+            apiKey: "AIzaSyC0a7FNYJMUgoWFRn46XZi7ZP2YAipiUaU",
+            authDomain: "gen-lang-client-0976770209.firebaseapp.com",
+            storageBucket: "gen-lang-client-0976770209.firebasestorage.app",
+            messagingSenderId: "161345534755",
+            measurementId: ""
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app, "ai-studio-49359090-2310-460a-9db1-a5242d26deaf");
+
+        window.FirebaseOps = {
+            auth, db, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
+            doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, where, getDocs, limit
+        };
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Bengali:wght@400;500;600;700;800;900&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        /* Shadow Utilities */
+        .glass-morphism {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .dark .glass-morphism {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .dark ::webkit-scrollbar-thumb {
+            background: #334155;
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans Bengali', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors duration-300">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { motion, AnimatePresence } = window.Motion;
+
+        // Constants & Helpers
+        const Role = { ADMIN: 'admin', EXECUTIVE: 'executive', GENERAL: 'general' };
+        const MemberCategory = { ACTIVE: 'active', VOLUNTEER: 'volunteer', LEAD: 'lead' };
+        
+        const roleLabels = { [Role.ADMIN]: 'অ্যাডমিন / পরিচালক', [Role.EXECUTIVE]: 'কার্যকরী সদস্য', [Role.GENERAL]: 'সাধারণ সদস্য' };
+        const roleColors = { 
+            [Role.ADMIN]: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
+            [Role.EXECUTIVE]: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+            [Role.GENERAL]: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+        };
+
+        const categoryLabels = { [MemberCategory.ACTIVE]: 'সক্রিয় সদস্য', [MemberCategory.VOLUNTEER]: 'স্বেচ্ছাসেবক', [MemberCategory.LEAD]: 'পরিচালক' };
+        const categoryColors = {
+            [MemberCategory.ACTIVE]: 'bg-green-100 text-green-600',
+            [MemberCategory.VOLUNTEER]: 'bg-orange-100 text-orange-600',
+            [MemberCategory.LEAD]: 'bg-indigo-100 text-indigo-600'
+        };
+
+        const LucideIcon = ({ name, size = 20, className = "" }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if (ref.current) {
+                    ref.current.innerHTML = "";
+                    const icon = lucide.createIcons({
+                        icons: { [name]: lucide[name] },
+                        nameAttr: 'data-lucide',
+                        attrs: { size, class: className }
+                    });
+                }
+            }, [name, size, className]);
+            return <span ref={ref} className="inline-flex"></span>;
+        };
+
+        // --- COMPONENTS ---
+
+        const NoticeBoard = ({ canPost, preferences }) => {
+            const [notices, setNotices] = useState([]);
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newNotice, setNewNotice] = useState({ title: '', content: '', type: 'info' });
+            
+            useEffect(() => {
+                const { db, collection, query, orderBy, onSnapshot } = window.FirebaseOps;
+                const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'));
+                return onSnapshot(q, (snapshot) => {
+                    setNotices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+            }, []);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const { db, auth, collection, addDoc, serverTimestamp } = window.FirebaseOps;
+                await addDoc(collection(db, 'notices'), {
+                    ...newNotice,
+                    authorId: auth.currentUser.uid,
+                    authorName: auth.currentUser.displayName,
+                    createdAt: serverTimestamp()
+                });
+                setShowAddModal(false);
+                setNewNotice({ title: '', content: '', type: 'info' });
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-black">নোটিশ বোর্ড</h2>
+                        {canPost && (
+                            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">
+                                <LucideIcon name="Plus" size={18} /> নতুন নোটিশ
+                            </button>
+                        )}
+                    </div>
+                    <div className="grid gap-4">
+                        {notices.map(notice => (
+                            <div key={notice.id} className="p-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                                <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${notice.type === 'urgent' ? 'bg-red-500' : 'bg-blue-600'}`}></div>
+                                <h3 className="font-bold text-lg mb-2">{notice.title}</h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3">{notice.content}</p>
+                                <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800 flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                    <span>{notice.authorName}</span>
+                                    <span>{notice.createdAt?.toDate ? notice.createdAt.toDate().toLocaleDateString('bn-BD') : 'এখন'}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const MemberDirectory = ({ onSelectMember }) => {
+            const [members, setMembers] = useState([]);
+            useEffect(() => {
+                const { db, collection, onSnapshot } = window.FirebaseOps;
+                return onSnapshot(collection(db, 'members'), (snapshot) => {
+                    setMembers(snapshot.docs.map(doc => doc.data()));
+                });
+            }, []);
+
+            return (
+                <div className="space-y-6">
+                    <h2 className="text-xl font-black">সদস্য তালিকা</h2>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        {members.map(member => (
+                            <div key={member.userId} onClick={() => onSelectMember(member.userId)} className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer hover:border-blue-600 transition-all group">
+                                <div className="flex items-center gap-3">
+                                    <img src={member.photoURL} className="w-10 h-10 rounded-full border border-slate-100 dark:border-slate-800" />
+                                    <div>
+                                        <p className="text-sm font-bold">{member.name}</p>
+                                        <p className="text-[10px] text-slate-400 italic">{member.rank}</p>
+                                    </div>
+                                </div>
+                                <LucideIcon name="ChevronRight" className="text-slate-300 group-hover:text-blue-600" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP ---
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [memberProfile, setMemberProfile] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('notices');
+            const [selectedMemberId, setSelectedMemberId] = useState(null);
+            const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+
+            useEffect(() => {
+                const { auth, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, serverTimestamp } = window.FirebaseOps;
+                const unsubscribe = onAuthStateChanged(auth, async (u) => {
+                    setUser(u);
+                    if (u) {
+                        const docRef = doc(db, 'members', u.uid);
+                        const snap = await getDoc(docRef);
+                        if (snap.exists()) {
+                            let data = snap.data();
+                            if (u.email === 'israfilxr1234@gmail.com' && data.role !== Role.ADMIN) {
+                                await updateDoc(docRef, { role: Role.ADMIN, isVerified: true });
+                                data.role = Role.ADMIN;
+                            }
+                            setMemberProfile(data);
+                        } else {
+                            const isAdmin = u.email === 'israfilxr1234@gmail.com';
+                            const newP = {
+                                userId: u.uid, name: u.displayName, email: u.email, photoURL: u.photoURL,
+                                role: isAdmin ? Role.ADMIN : Role.GENERAL, 
+                                rank: isAdmin ? 'Organization Head' : 'সদস্য',
+                                isVerified: isAdmin, createdAt: serverTimestamp()
+                            };
+                            await setDoc(docRef, newP);
+                            setMemberProfile(newP);
+                        }
+                    }
+                    setLoading(false);
+                });
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                const root = window.document.documentElement;
+                if (theme === 'dark') root.classList.add('dark');
+                else root.classList.remove('dark');
+                localStorage.setItem('theme', theme);
+            }, [theme]);
+
+            const login = () => {
+                const { signInWithPopup, GoogleAuthProvider, auth } = window.FirebaseOps;
+                signInWithPopup(auth, new GoogleAuthProvider());
+            };
+
+            const logout = () => window.FirebaseOps.signOut(window.FirebaseOps.auth);
+
+            if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-blue-600"><LucideIcon name="Loader2" size={48} className="animate-spin" /></div>;
+
+            if (!user) return (
+                <div className="min-h-screen flex items-center justify-center p-6 text-center">
+                    <div className="max-w-md w-full p-12 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-2xl">
+                        <h1 className="text-4xl font-black text-blue-600 mb-4">অর্গSync</h1>
+                        <p className="text-slate-400 mb-10 text-sm">সংগঠন পরিচালনায় আপনার আধুনিক সমাধান।</p>
+                        <button onClick={login} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2">
+                             Google দিয়ে লগইন করুন
+                        </button>
+                    </div>
+                </div>
+            );
+
+            const navItems = [
+                { id: 'notices', label: 'নোটিশ', icon: 'Bell' },
+                { id: 'members', label: 'সদস্য', icon: 'Users' },
+                { id: 'events', label: 'ইভেন্ট', icon: 'Calendar' },
+                { id: 'funds', label: 'ফান্ড', icon: 'Wallet' },
+                { id: 'settings', label: 'সেটিংস', icon: 'Settings' },
+            ];
+
+            return (
+                <div className="min-h-screen flex flex-col lg:flex-row overflow-hidden h-screen">
+                    {/* Sidebar Desktop */}
+                    <aside className="hidden lg:flex w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col py-8 px-4">
+                        <div className="px-4 mb-10">
+                            <h1 className="text-2xl font-black text-blue-600 tracking-tighter">অর্গSync</h1>
+                        </div>
+                        <nav className="flex-1 space-y-1">
+                            {navItems.map(item => (
+                                <button key={item.id} onClick={() => {setActiveTab(item.id); setSelectedMemberId(null);}} 
+                                    className={`w-full flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <LucideIcon name={item.icon} size={20} />
+                                    <span>{item.label}</span>
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="mt-auto p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
+                            <div className="flex items-center gap-3 mb-4">
+                                <img src={user.photoURL} className="w-8 h-8 rounded-full" />
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold truncate">{memberProfile?.name}</p>
+                                    <p className="text-[9px] text-slate-400 uppercase tracking-widest">{memberProfile?.rank}</p>
+                                </div>
+                            </div>
+                            <button onClick={logout} className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-2">
+                                <LucideIcon name="LogOut" size={14} /> লগআউট করুন
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* Main */}
+                    <div className="flex-1 flex flex-col min-w-0">
+                        <header className="h-16 lg:h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between sticky top-0 z-10">
+                            <h2 className="text-lg font-black">{navItems.find(i => i.id === activeTab)?.label}</h2>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:scale-110 transition-all">
+                                    <LucideIcon name={theme === 'light' ? 'Moon' : 'Sun'} size={20} />
+                                </button>
+                            </div>
+                        </header>
+
+                        <main className="flex-1 overflow-y-auto p-6 lg:p-10 pb-32 lg:pb-10 max-w-5xl mx-auto w-full">
+                            {activeTab === 'notices' && <NoticeBoard canPost={memberProfile?.role !== Role.GENERAL} />}
+                            {activeTab === 'members' && <MemberDirectory onSelectMember={setSelectedMemberId} />}
+                            {activeTab === 'funds' && <div className="p-10 text-center text-slate-400 font-bold bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm"><LucideIcon name="Wallet" size={48} className="mx-auto mb-4" />ফান্ড ট্র্যাকার মডিউল লোড হচ্ছে...</div>}
+                            {activeTab === 'events' && <div className="p-10 text-center text-slate-400 font-bold bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm"><LucideIcon name="Calendar" size={48} className="mx-auto mb-4" />ইভেন্ট মডিউল লোড হচ্ছে...</div>}
+                            {activeTab === 'settings' && <div className="p-10 text-center text-slate-400 font-bold bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm"><LucideIcon name="Settings" size={48} className="mx-auto mb-4" />সেটিংস মডিউল লোড হচ্ছে...</div>}
+                        </main>
+
+                        {/* Mobile Nav */}
+                        <nav className="fixed bottom-0 left-0 right-0 h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 lg:hidden flex items-center justify-around px-2 pb-5 z-40">
+                            {navItems.map(item => (
+                                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 transition-all ${activeTab === item.id ? 'text-blue-600 scale-110' : 'text-slate-400'}`}>
+                                    <LucideIcon name={item.icon} size={24} />
+                                    <span className="text-[8px] font-bold uppercase tracking-widest">{item.label}</span>
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
